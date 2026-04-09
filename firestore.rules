@@ -1,0 +1,149 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required) - Firebase Auth UID
+//   - displayName: string (required) - User's display name
+//   - email: string (required, format: email) - User's email
+//   - photoURL: string (optional, format: uri) - User's avatar URL
+//   - bio: string (optional) - User's biography
+//   - createdAt: timestamp (required) - Account creation date
+//
+// Collection: adventures
+// Document ID: {adventureId}
+// Fields:
+//   - userId: string (required) - Author's UID
+//   - authorName: string (required) - Author's display name
+//   - authorPhoto: string (optional) - Author's photo URL
+//   - title: string (required) - Adventure title
+//   - description: string (optional) - Adventure description
+//   - location: string (optional) - Adventure location
+//   - date: string (optional, format: date) - Adventure date
+//   - media: list (required) - List of media objects {url, type, thumbnail}
+//   - tags: list (optional) - Adventure tags
+//   - likesCount: number (required) - Number of likes
+//   - createdAt: timestamp (required) - Post creation date
+//
+// Collection: adventures/{adventureId}/comments
+// Document ID: {commentId}
+// Fields:
+//   - userId: string (required) - Commenter's UID
+//   - userName: string (required) - Commenter's name
+//   - userPhoto: string (optional) - Commenter's photo
+//   - text: string (required) - Comment text
+//   - createdAt: timestamp (required) - Comment date
+//
+// Collection: adventures/{adventureId}/likes
+// Document ID: {userId}
+// Fields:
+//   - createdAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'displayName', 'email', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'displayName', 'email', 'photoURL', 'bio', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             isValidEmail(data.email) &&
+             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() < 500)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAdventure(data) {
+      return hasRequiredFields(['userId', 'authorName', 'title', 'media', 'likesCount', 'createdAt']) &&
+             hasOnlyAllowedFields(['userId', 'authorName', 'authorPhoto', 'title', 'description', 'location', 'date', 'media', 'tags', 'likesCount', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.authorName is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.media is list && data.media.size() > 0 && data.media.size() <= 10 &&
+             data.likesCount is number &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidComment(data) {
+      return hasRequiredFields(['userId', 'userName', 'text', 'createdAt']) &&
+             hasOnlyAllowedFields(['userId', 'userName', 'userPhoto', 'text', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /adventures/{adventureId} {
+      allow read: if true; // Publicly viewable adventures
+      allow create: if isAuthenticated() && isValidAdventure(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (isDocOwner() && isValidAdventure(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']) &&
+         math.abs(request.resource.data.likesCount - resource.data.likesCount) == 1)
+      );
+      allow delete: if isDocOwner();
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isValidComment(request.resource.data);
+        allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || get(/databases/$(database)/documents/adventures/$(adventureId)).data.userId == request.auth.uid);
+      }
+
+      match /likes/{userId} {
+        allow read: if true;
+        allow create, delete: if isOwner(userId);
+      }
+    }
+  }
+}
