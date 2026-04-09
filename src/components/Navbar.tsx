@@ -86,15 +86,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, navigateTo }) => {
                 </Button>
 
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="outline-none">
-                      <Avatar className="w-8 h-8 border border-zinc-800">
-                        <AvatarImage src={profile?.photoURL || user.photoURL || ''} />
-                        <AvatarFallback className="bg-zinc-900 text-zinc-400">
-                          {user.displayName?.charAt(0) || 'U'}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
+                  <DropdownMenuTrigger className="outline-none cursor-pointer">
+                    <Avatar className="w-8 h-8 border border-zinc-800">
+                      <AvatarImage src={profile?.photoURL || user.photoURL || ''} />
+                      <AvatarFallback className="bg-zinc-900 text-zinc-400">
+                        {user.displayName?.charAt(0) || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 bg-zinc-900 border-zinc-800 text-zinc-100">
                     <div className="px-2 py-1.5 text-sm font-medium text-zinc-400">

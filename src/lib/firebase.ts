@@ -7,7 +7,11 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Log storage bucket for debugging
+console.log('Initializing storage with bucket:', firebaseConfig.storageBucket);
 export const storage = getStorage(app);
+
 export const googleProvider = new GoogleAuthProvider();
 
 export enum OperationType {

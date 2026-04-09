@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useAuth } from './FirebaseProvider';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
@@ -61,12 +61,28 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const mediaUrls = await Promise.all(
         files.map(async (file) => {
           const storageRef = ref(storage, `adventures/${user.uid}/${Date.now()}_${file.name}`);
-          const snapshot = await uploadBytes(storageRef, file);
-          const url = await getDownloadURL(snapshot.ref);
-          return {
-            url,
-            type: file.type.startsWith('video') ? 'video' : 'image'
-          };
+          
+          return new Promise<{ url: string; type: string }>((resolve, reject) => {
+            const uploadTask = uploadBytesResumable(storageRef, file);
+            
+            uploadTask.on('state_changed', 
+              (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                console.log('Upload is ' + progress + '% done');
+              }, 
+              (error) => {
+                console.error('Upload error:', error);
+                reject(error);
+              }, 
+              async () => {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                resolve({
+                  url,
+                  type: file.type.startsWith('video') ? 'video' : 'image'
+                });
+              }
+            );
+          });
         })
       );
 
@@ -89,10 +105,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       toast.success('Adventure uploaded successfully!');
       resetForm();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      handleFirestoreError(error, OperationType.CREATE, 'adventures');
-      toast.error('Failed to upload adventure');
+      if (error.code === 'storage/retry-limit-exceeded') {
+        toast.error('Storage upload timed out. Please ensure Firebase Storage is enabled in your Firebase Console and try again.');
+      } else {
+        handleFirestoreError(error, OperationType.CREATE, 'adventures');
+        toast.error('Failed to upload adventure');
+      }
     } finally {
       setUploading(false);
     }
